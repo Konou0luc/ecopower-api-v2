@@ -1,0 +1,15 @@
+# Fichiers à ignorer lors du déploiement sur Vercel
+node_modules
+.env
+.env.local
+*.log
+.DS_Store
+temp_doc/
+image/app/*.png
+!image/app/logo.png
+uploads/
+fix-subscription.js
+test-*.js
+on
+tatus
+

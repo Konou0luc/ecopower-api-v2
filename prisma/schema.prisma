@@ -1,0 +1,263 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                 String          @id @default(uuid())
+  nom                String
+  prenom             String
+  email              String          @unique
+  telephone          String
+  motDePasse         String?
+  googleId           String?         @unique
+  authMethod         AuthMethod      @default(email)
+  role               Role
+  idProprietaire     String?
+  abonnementId       String?         @unique
+  maisonId           String?
+  firstLogin         Boolean         @default(false)
+  refreshToken       String?
+  deviceToken        String?
+  homeLatitude       Float?
+  homeLongitude      Float?
+  homeCity           String?
+  homeCountry        String?
+  homeLocationSource LocationSource?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  abonnementsGeres   Abonnement[]    @relation("ProprietaireAbonnements")
+  consommations      Consommation[]
+  factures           Facture[]
+  logs               Log[]
+  maisonsPropriete   Maison[]        @relation("ProprietaireMaisons")
+  messagesRecus      Message[]       @relation("DestinataireMessages")
+  messagesEnvoyes    Message[]       @relation("ExpediteurMessages")
+  notifications      Notification[]
+  abonnement         Abonnement?     @relation("UserAbonnement", fields: [abonnementId], references: [id])
+  proprietaire       User?           @relation("ProprietaireResidents", fields: [idProprietaire], references: [id])
+  residents          User[]          @relation("ProprietaireResidents")
+  maisonResident     Maison?         @relation("ResidentMaison", fields: [maisonId], references: [id])
+  maisonsHabitees    Maison[]        @relation("MaisonResidents")
+}
+
+model Maison {
+  id                String         @id @default(uuid())
+  nomMaison         String
+  proprietaireId    String
+  adresseRue        String?
+  adresseVille      String?
+  adresseCodePostal String?
+  adressePays       String         @default("Togo")
+  description       String?
+  tarifKwh          Float          @default(0)
+  nbResidentsMax    Int            @default(1)
+  statut            String         @default("active")
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  consommations     Consommation[]
+  factures          Facture[]
+  proprietaire      User           @relation("ProprietaireMaisons", fields: [proprietaireId], references: [id])
+  residentsDirects  User[]         @relation("ResidentMaison")
+  listeResidents    User[]         @relation("MaisonResidents")
+}
+
+model Consommation {
+  id            String             @id @default(uuid())
+  residentId    String
+  maisonId      String
+  previousIndex Int
+  currentIndex  Int
+  kwh           Float
+  montant       Float
+  mois          Int
+  annee         Int
+  commentaire   String?
+  statut        ConsommationStatut @default(enregistree)
+  dateReleve    DateTime           @default(now())
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  maison        Maison             @relation(fields: [maisonId], references: [id])
+  resident      User               @relation(fields: [residentId], references: [id])
+  factures      Facture[]
+}
+
+model Facture {
+  id                String        @id @default(uuid())
+  residentId        String
+  maisonId          String
+  consommationId    String
+  montant           Float
+  statut            FactureStatut @default(non_payee)
+  numeroFacture     String        @unique
+  dateEmission      DateTime      @default(now())
+  dateEcheance      DateTime
+  datePaiement      DateTime?
+  detailsKwh        Float?
+  detailsPrixKwh    Float?        @default(0.1740)
+  detailsFraisFixes Float?        @default(0)
+  commentaire       String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  consommation      Consommation  @relation(fields: [consommationId], references: [id])
+  maison            Maison        @relation(fields: [maisonId], references: [id])
+  resident          User          @relation(fields: [residentId], references: [id])
+}
+
+model Abonnement {
+  id                      String           @id @default(uuid())
+  type                    AbonnementType
+  prix                    Float
+  nbResidentsParMaisonMax Int
+  nbMaisonsMax            Int
+  dateDebut               DateTime         @default(now())
+  dateFin                 DateTime
+  statut                  AbonnementStatut @default(actif)
+  isActive                Boolean          @default(false)
+  proprietaireId          String
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  proprietaire            User             @relation("ProprietaireAbonnements", fields: [proprietaireId], references: [id])
+  user                    User?            @relation("UserAbonnement")
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  sujet          String
+  contenu        String
+  type           MessageType   @default(email)
+  statut         MessageStatut @default(en_attente)
+  expediteurId   String
+  destinataireId String
+  dateEnvoi      DateTime      @default(now())
+  dateLecture    DateTime?
+  metadata       Json?         @default("{}")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  destinataire   User          @relation("DestinataireMessages", fields: [destinataireId], references: [id])
+  expediteur     User          @relation("ExpediteurMessages", fields: [expediteurId], references: [id])
+}
+
+model Notification {
+  id             String               @id @default(uuid())
+  titre          String
+  contenu        String
+  type           NotificationType     @default(info)
+  statut         MessageStatut        @default(en_attente)
+  destinataireId String
+  dateEnvoi      DateTime             @default(now())
+  dateLecture    DateTime?
+  priorite       NotificationPriorite @default(normale)
+  metadata       Json?                @default("{}")
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  destinataire   User                 @relation(fields: [destinataireId], references: [id])
+}
+
+model Log {
+  id        String   @id @default(uuid())
+  level     LogLevel
+  message   String
+  module    String
+  action    String
+  userId    String?
+  ip        String?
+  userAgent String?
+  metadata  Json?    @default("{}")
+  stack     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model AppSettings {
+  id               String   @id @default(uuid())
+  key              String   @unique @default("contact")
+  email            String   @default("")
+  phone            String   @default("")
+  website          String   @default("")
+  description      String   @default("")
+  guideRapideUrl   String   @default("")
+  privacyPolicyUrl String   @default("")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+enum Role {
+  proprietaire
+  resident
+  admin
+}
+
+enum AuthMethod {
+  google
+  email
+}
+
+enum LocationSource {
+  gps
+  manual
+}
+
+enum ConsommationStatut {
+  enregistree
+  facturee
+}
+
+enum FactureStatut {
+  payee     @map("payée")
+  non_payee @map("non payée")
+  en_retard @map("en retard")
+}
+
+enum AbonnementType {
+  basic
+  premium
+  enterprise
+}
+
+enum AbonnementStatut {
+  actif
+  expire   @map("expiré")
+  suspendu
+}
+
+enum MessageType {
+  email
+  sms
+  push
+  chat
+}
+
+enum MessageStatut {
+  envoye     @map("envoye")
+  en_attente @map("en_attente")
+  echec      @map("echec")
+  lu         @map("lu")
+}
+
+enum NotificationType {
+  system
+  alert
+  info
+  warning
+  success
+}
+
+enum NotificationPriorite {
+  basse
+  normale
+  haute
+  critique
+}
+
+enum LogLevel {
+  debug
+  info
+  warn
+  error
+  fatal
+}
