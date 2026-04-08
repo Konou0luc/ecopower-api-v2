@@ -142,19 +142,7 @@ const getConsommationsByResident = async (req, res) => {
       ]
     });
 
-    const totalKwh = consommations.reduce((s, c) => s + c.kwh, 0);
-    const totalMontant = consommations.reduce((s, c) => s + c.montant, 0);
-    const moyenneKwh = consommations.length > 0 ? totalKwh / consommations.length : 0;
-
-    res.json({
-      consommations,
-      statistiques: {
-        totalKwh,
-        totalMontant,
-        moyenneKwh,
-        nombreReleves: consommations.length,
-      },
-    });
+    res.json(consommations);
   } catch (error) {
     console.error("Erreur lors de la récupération des consommations:", error);
     res.status(500).json({ message: "Erreur lors de la récupération" });
@@ -184,7 +172,19 @@ const getMyConsommations = async (req, res) => {
       ]
     });
 
-    res.json(consommations);
+    const totalKwh = consommations.reduce((s, c) => s + c.kwh, 0);
+    const totalMontant = consommations.reduce((s, c) => s + c.montant, 0);
+    const moyenneKwh = consommations.length > 0 ? totalKwh / consommations.length : 0;
+
+    res.json({
+      consommations,
+      statistiques: {
+        totalKwh,
+        totalMontant,
+        moyenneKwh,
+        nombreReleves: consommations.length,
+      },
+    });
   } catch (error) {
     console.error("Erreur lors de la récupération de mes consommations:", error);
     res.status(500).json({ message: "Erreur lors de la récupération" });

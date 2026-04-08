@@ -332,7 +332,22 @@ const getMyFactures = async (req, res) => {
       orderBy: { dateEmission: 'desc' }
     });
 
-    res.json(factures);
+    const totalMontant = factures.reduce((sum, f) => sum + f.montant, 0);
+    const facturesPayees = factures.filter(f => f.statut === 'payee');
+    const totalPaye = facturesPayees.reduce((sum, f) => sum + f.montant, 0);
+    const facturesEnRetard = factures.filter(f => f.statut === 'en_retard');
+
+    res.json({
+      factures,
+      statistiques: {
+        totalFactures: factures.length,
+        totalMontant,
+        totalPaye,
+        totalImpaye: totalMontant - totalPaye,
+        facturesPayees: facturesPayees.length,
+        facturesEnRetard: facturesEnRetard.length
+      }
+    });
   } catch (error) {
     console.error('Erreur lors de la récupération de mes factures:', error);
     res.status(500).json({ message: 'Erreur lors de la récupération' });
@@ -371,7 +386,7 @@ const getMyMaisonFactures = async (req, res) => {
       orderBy: { dateEmission: 'desc' }
     });
 
-    res.json(factures);
+    res.json({ factures });
   } catch (error) {
     console.error('Erreur lors de la récupération des factures de la maison:', error);
     res.status(500).json({ message: 'Erreur lors de la récupération' });
