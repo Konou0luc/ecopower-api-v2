@@ -142,8 +142,14 @@ exports.createMessage = async (req, res) => {
 
     if (!maisonId) return res.status(400).json({ message: 'maisonId requis' });
 
-    const destinataireId = receiverId || null;
-    if (!destinataireId) return res.status(400).json({ message: 'Destinataire requis' });
+    // Pour les messages de groupe, receiverId peut être null ou vide
+    // Pour les messages privés, receiverId doit être fourni
+    const destinataireId = (receiverId && receiverId.trim() !== '') ? receiverId : null;
+    
+    // Si c'est un message privé et pas de destinataire, retourner une erreur
+    if (!destinataireId && !maisonId) {
+      return res.status(400).json({ message: 'Destinataire requis pour un message privé' });
+    }
 
     const message = await prisma.message.create({
       data: {
@@ -157,10 +163,13 @@ exports.createMessage = async (req, res) => {
       }
     });
 
-    try {
-      await notifications.envoyer(destinataireId, `Nouveau message de ${req.user.prenom} ${req.user.nom}: ${contenu.substring(0, 50)}`);
-    } catch (e) {
-      console.error('Erreur notif message:', e.message);
+    // Notification seulement si c'est un message privé (destinataireId non-null)
+    if (destinataireId) {
+      try {
+        await notifications.envoyer(destinataireId, `Nouveau message de ${req.user.prenom} ${req.user.nom}: ${contenu.substring(0, 50)}`);
+      } catch (e) {
+        console.error('Erreur notif message:', e.message);
+      }
     }
 
     res.status(201).json(message);
@@ -190,7 +199,7 @@ exports.getPrivateHistory = async (req, res) => {
       }
     });
 
-    res.json(messages);
+    res.json({ messages });
   } catch (error) {
     console.error('Erreur getPrivateHistory:', error);
     res.status(500).json({ message: 'Erreur lors de la récupération de l\'historique' });
@@ -217,7 +226,7 @@ exports.getHouseHistory = async (req, res) => {
       }
     });
 
-    res.json(messages);
+    res.json({ messages });
   } catch (error) {
     console.error('Erreur getHouseHistory:', error);
     res.status(500).json({ message: 'Erreur lors de la récupération de l\'historique de la maison' });
