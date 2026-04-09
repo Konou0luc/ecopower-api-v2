@@ -131,13 +131,13 @@ model Message {
   type           MessageType   @default(email)
   statut         MessageStatut @default(en_attente)
   expediteurId   String
-  destinataireId String
+  destinataireId String?
   dateEnvoi      DateTime      @default(now())
   dateLecture    DateTime?
   metadata       Json?         @default("{}")
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
-  destinataire   User          @relation("DestinataireMessages", fields: [destinataireId], references: [id])
+  destinataire   User?         @relation("DestinataireMessages", fields: [destinataireId], references: [id])
   expediteur     User          @relation("ExpediteurMessages", fields: [expediteurId], references: [id])
 }
 
