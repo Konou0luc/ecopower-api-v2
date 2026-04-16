@@ -118,7 +118,58 @@ const getSystemStatus = async (req, res) => {
 };
 
 const getSystemInfo = async (req, res) => {
-  res.status(501).json({ message: 'Non implémenté' });
+  try {
+    const uptimeSeconds = process.uptime();
+    const days = Math.floor(uptimeSeconds / 86400);
+    const hours = Math.floor((uptimeSeconds % 86400) / 3600);
+    const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+
+    const totalMemory = os.totalmem();
+    const freeMemory = os.freemem();
+    const usedMemory = totalMemory - freeMemory;
+    const usedMb = Math.round(usedMemory / 1024 / 1024);
+    const totalMb = Math.round(totalMemory / 1024 / 1024);
+    const memPct = Math.round((usedMemory / totalMemory) * 100);
+
+    let dbVersion = 'N/A';
+    try {
+      const rows = await prisma.$queryRaw`SELECT version()`;
+      if (rows?.[0]?.version) {
+        dbVersion = String(rows[0].version).slice(0, 48);
+      }
+    } catch (e) {
+      dbVersion = 'connecté';
+    }
+
+    res.json({
+      version: {
+        api: '2',
+        node: process.version,
+        platform: os.platform()
+      },
+      uptime: {
+        days,
+        hours,
+        minutes,
+        total: uptimeSeconds
+      },
+      memory: {
+        used: `${usedMb} Mo`,
+        total: `${totalMb} Mo`,
+        percentage: `${memPct}%`
+      },
+      database: {
+        type: 'PostgreSQL',
+        version: dbVersion,
+        status: 'connecté'
+      },
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Erreur getSystemInfo:', error);
+    res.status(500).json({ message: 'Erreur lors de la récupération des informations système' });
+  }
 };
 
 module.exports = {

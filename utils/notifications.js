@@ -64,6 +64,64 @@ const envoyer = async (residentId, message) => {
   }
 };
 
+/** FCM avec titre personnalisé (admin / diffusion) */
+const envoyerAvecTitre = async (userId, titre, corps) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!user) {
+      return { success: false, error: 'USER_NOT_FOUND' };
+    }
+
+    const deviceToken = user.deviceToken;
+    if (!deviceToken) {
+      return { success: false, error: 'DEVICE_TOKEN_MISSING' };
+    }
+
+    const messagePayload = {
+      notification: {
+        title: titre || 'Ecopower',
+        body: corps
+      },
+      data: {
+        userId: user.id,
+        type: 'notification'
+      },
+      token: deviceToken,
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId: 'ecopower_default'
+        }
+      },
+      apns: {
+        headers: {
+          'apns-priority': '10'
+        },
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1
+          }
+        }
+      }
+    };
+
+    const messageId = await admin.messaging().send(messagePayload);
+    return { success: true, response: { messageId } };
+  } catch (error) {
+    console.error('❌ Erreur envoyerAvecTitre:', error);
+    return {
+      success: false,
+      error: error.message,
+      errorCode: error.code
+    };
+  }
+};
+
 const notifySubscriptionExpiry = async () => {
   try {
     console.log('🔔 Vérification des abonnements expirant bientôt...');
@@ -197,6 +255,7 @@ const notifyResidentAdded = async (resident, password, maisonNom) => {
 
 module.exports = {
   envoyer,
+  envoyerAvecTitre,
   notifySubscriptionExpiry,
   notifyOverdueInvoices,
   notifyNewInvoice,
