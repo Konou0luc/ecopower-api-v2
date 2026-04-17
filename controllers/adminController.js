@@ -1,3 +1,4 @@
+const PDFDocument = require('pdfkit');
 const prisma = require('../config/prisma');
 const notifications = require('../utils/notifications');
 
@@ -517,6 +518,84 @@ const getAllFactures = async (req, res) => {
   }
 };
 
+/** PDF facture (admin) — téléchargement pour le back-office. */
+const downloadFacturePdf = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const facture = await prisma.facture.findUnique({
+      where: { id },
+      include: {
+        resident: { select: { nom: true, prenom: true, email: true, telephone: true } },
+        maison: { select: { nomMaison: true, adresseRue: true, adresseVille: true } },
+        consommation: { select: { kwh: true, mois: true, annee: true } },
+      },
+    });
+
+    if (!facture) {
+      return res.status(404).json({ message: 'Facture non trouvée' });
+    }
+
+    const filename = `${facture.numeroFacture.replace(/[^\w.-]+/g, '_')}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    doc.pipe(res);
+
+    doc.fontSize(18).text('Ecopower', { align: 'center' });
+    doc.moveDown(0.35);
+    doc.fontSize(13).text(`Facture ${facture.numeroFacture}`, { align: 'center' });
+    doc.moveDown(1.2);
+    doc.fontSize(10.5);
+    doc.text(`Date d'émission : ${facture.dateEmission.toLocaleString('fr-FR')}`);
+    doc.text(`Date d'échéance : ${facture.dateEcheance.toLocaleString('fr-FR')}`);
+    if (facture.datePaiement) {
+      doc.text(`Date de paiement : ${facture.datePaiement.toLocaleString('fr-FR')}`);
+    }
+    doc.moveDown(0.5);
+    doc.fontSize(12).text(`Montant : ${facture.montant} FCFA`, { continued: false });
+    doc.fontSize(10.5);
+    doc.text(`Statut : ${mapFactureStatutForClient(facture.statut)}`);
+    doc.moveDown();
+    if (facture.resident) {
+      doc.text(`Client : ${facture.resident.prenom} ${facture.resident.nom}`);
+      doc.text(`Email : ${facture.resident.email || '—'}`);
+      doc.text(`Téléphone : ${facture.resident.telephone || '—'}`);
+    }
+    if (facture.maison) {
+      const addr = [facture.maison.adresseRue, facture.maison.adresseVille].filter(Boolean).join(', ');
+      doc.text(`Maison : ${facture.maison.nomMaison}${addr ? ` — ${addr}` : ''}`);
+    }
+    if (facture.consommation) {
+      doc.text(
+        `Consommation : ${facture.consommation.kwh} kWh (période ${facture.consommation.mois}/${facture.consommation.annee})`
+      );
+    }
+    if (facture.detailsKwh != null) {
+      doc.moveDown(0.3);
+      doc.fontSize(9.5).fillColor('#444444');
+      doc.text(
+        `Détail énergie : ${facture.detailsKwh} kWh × ${facture.detailsPrixKwh ?? '—'} FCFA/kWh`
+      );
+      doc.fillColor('#000000');
+    }
+    if (facture.detailsFraisFixes != null && facture.detailsFraisFixes > 0) {
+      doc.fontSize(9.5).fillColor('#444444');
+      doc.text(`Frais fixes : ${facture.detailsFraisFixes} FCFA`);
+      doc.fillColor('#000000');
+    }
+
+    doc.end();
+  } catch (error) {
+    console.error('Erreur downloadFacturePdf:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Erreur lors de la génération du PDF' });
+    } else {
+      res.end();
+    }
+  }
+};
+
 const getAllAbonnements = async (req, res) => {
   try {
     const { page = 1, limit = 50 } = req.query;
@@ -895,6 +974,7 @@ module.exports = {
   deleteMaison,
   getAllConsommations,
   getAllFactures,
+  downloadFacturePdf,
   getAllAbonnements,
   getResidents,
   deleteResident,

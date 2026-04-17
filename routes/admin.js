@@ -23,6 +23,7 @@ router.delete('/houses/:id', adminController.deleteMaison);
 
 router.get('/consumptions', adminController.getAllConsommations);
 
+router.get('/bills/:id/pdf', adminController.downloadFacturePdf);
 
 router.get('/bills', adminController.getAllFactures);
 
