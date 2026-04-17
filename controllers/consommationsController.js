@@ -1,7 +1,6 @@
 const prisma = require('../config/prisma');
 const notifications = require('../utils/notifications');
 
-/** Limite mensuelle (résident + maison) : `MAX_RELEVES_PAR_MOIS` dans `.env`, défaut 2, minimum 1. */
 function getMaxRelevesParMois() {
   const n = parseInt(process.env.MAX_RELEVES_PAR_MOIS, 10);
   if (Number.isFinite(n) && n >= 1) return n;
