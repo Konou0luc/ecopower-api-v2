@@ -1,8 +1,21 @@
 const prisma = require('../config/prisma');
 const notifications = require('../utils/notifications');
 
+/** Limite mensuelle (résident + maison) : `MAX_RELEVES_PAR_MOIS` dans `.env`, défaut 2, minimum 1. */
+function getMaxRelevesParMois() {
+  const n = parseInt(process.env.MAX_RELEVES_PAR_MOIS, 10);
+  if (Number.isFinite(n) && n >= 1) return n;
+  return 2;
+}
+
 const addConsommation = async (req, res) => {
   try {
+    if (req.user.role !== 'proprietaire') {
+      return res.status(403).json({
+        message: 'Seul le gérant ou le propriétaire peut enregistrer les relevés de consommation pour les résidents',
+      });
+    }
+
     const {
       residentId,
       maisonId,
@@ -13,43 +26,22 @@ const addConsommation = async (req, res) => {
       commentaire,
     } = req.body;
 
-    let maison;
-    if (req.user.role === "proprietaire") {
-      const resident = await prisma.user.findFirst({
-        where: {
-          id: residentId,
-          idProprietaire: req.user.id,
-          role: "resident",
-        },
-      });
-      if (!resident) return res.status(404).json({ message: "Résident non trouvé" });
+    const resident = await prisma.user.findFirst({
+      where: {
+        id: residentId,
+        idProprietaire: req.user.id,
+        role: 'resident',
+      },
+    });
+    if (!resident) return res.status(404).json({ message: 'Résident non trouvé' });
 
-      maison = await prisma.maison.findFirst({
-        where: {
-          id: maisonId,
-          proprietaireId: req.user.id,
-        },
-      });
-      if (!maison) return res.status(404).json({ message: "Maison non trouvée" });
-    } else {
-      if (residentId !== req.user.id) {
-        return res.status(403).json({
-          message: "Vous ne pouvez enregistrer que votre propre consommation",
-        });
-      }
-      maison = await prisma.maison.findFirst({
-        where: {
-          id: maisonId,
-          OR: [
-            { listeResidents: { some: { id: req.user.id } } },
-            { residentsDirects: { some: { id: req.user.id } } }
-          ]
-        },
-      });
-      if (!maison) return res.status(404).json({ message: "Maison non trouvée" });
-    }
-
-    const effectiveMaxReleves = (req.user && req.user.email === 'konouluc1@gmail.com') ? 10 : 2;
+    const maison = await prisma.maison.findFirst({
+      where: {
+        id: maisonId,
+        proprietaireId: req.user.id,
+      },
+    });
+    if (!maison) return res.status(404).json({ message: 'Maison non trouvée' });
 
     const countReleves = await prisma.consommation.count({
       where: {
@@ -59,9 +51,10 @@ const addConsommation = async (req, res) => {
         annee,
       },
     });
-    if (countReleves >= effectiveMaxReleves) {
+    const maxReleves = getMaxRelevesParMois();
+    if (countReleves >= maxReleves) {
       return res.status(400).json({
-        message: `Limite atteinte : maximum ${effectiveMaxReleves} relevés par mois pour ce résident`,
+        message: `Limite atteinte : maximum ${maxReleves} relevés par mois pour ce résident`,
         count: countReleves,
       });
     }
@@ -88,12 +81,10 @@ const addConsommation = async (req, res) => {
       }
     });
 
-    if (req.user.role === "proprietaire") {
-      try {
-        await notifications.notifyConsommationAdded(residentId, consommation.id);
-      } catch (e) {
-        console.error('Erreur notification consommation:', e.message);
-      }
+    try {
+      await notifications.notifyConsommationAdded(residentId, consommation.id);
+    } catch (e) {
+      console.error('Erreur notification consommation:', e.message);
     }
 
     res.status(201).json({
@@ -204,10 +195,8 @@ const deleteConsommation = async (req, res) => {
       return res.status(404).json({ message: "Consommation non trouvée" });
     }
 
-    if (req.user.role === "proprietaire" && consommation.maison.proprietaireId !== req.user.id) {
-      return res.status(403).json({ message: "Accès non autorisé" });
-    } else if (req.user.role === "resident" && consommation.residentId !== req.user.id) {
-      return res.status(403).json({ message: "Accès non autorisé" });
+    if (req.user.role !== 'proprietaire' || consommation.maison.proprietaireId !== req.user.id) {
+      return res.status(403).json({ message: 'Seul le gérant peut supprimer un relevé de cette maison' });
     }
 
     if (consommation.statut === "facturee") {
@@ -305,10 +294,8 @@ const updateConsommation = async (req, res) => {
     });
     if (!consommation) return res.status(404).json({ message: "Consommation non trouvée" });
 
-    if (req.user.role === "proprietaire" && consommation.maison.proprietaireId !== req.user.id) {
-      return res.status(403).json({ message: "Accès non autorisé" });
-    } else if (req.user.role === "resident" && consommation.residentId !== req.user.id) {
-      return res.status(403).json({ message: "Accès non autorisé" });
+    if (req.user.role !== 'proprietaire' || consommation.maison.proprietaireId !== req.user.id) {
+      return res.status(403).json({ message: 'Seul le gérant peut modifier un relevé de cette maison' });
     }
 
     const data = {};

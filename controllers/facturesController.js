@@ -15,18 +15,20 @@ const generateFacture = async (req, res) => {
     const { residentId } = req.params;
     const { mois, annee, fraisFixes = 0 } = req.body;
 
-    if (req.user.role === 'proprietaire') {
-      const resident = await prisma.user.findFirst({
-        where: {
-          id: residentId,
-          idProprietaire: req.user.id,
-          role: 'resident'
-        }
+    if (req.user.role !== 'proprietaire') {
+      return res.status(403).json({
+        message: 'Seul le gérant ou le propriétaire peut générer une facture à partir des relevés',
       });
-      if (!resident) return res.status(404).json({ message: 'Résident non trouvé' });
-    } else if (residentId !== req.user.id) {
-      return res.status(403).json({ message: 'Accès non autorisé' });
     }
+
+    const residentCible = await prisma.user.findFirst({
+      where: {
+        id: residentId,
+        idProprietaire: req.user.id,
+        role: 'resident',
+      },
+    });
+    if (!residentCible) return res.status(404).json({ message: 'Résident non trouvé' });
 
     const consommation = await prisma.consommation.findFirst({
       where: {
