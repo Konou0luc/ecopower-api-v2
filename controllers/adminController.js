@@ -1,6 +1,7 @@
 const PDFDocument = require('pdfkit');
 const prisma = require('../config/prisma');
 const notifications = require('../utils/notifications');
+const firebaseAdmin = require('../config/firebase');
 
 const getDashboardStats = async (req, res) => {
   try {
@@ -235,15 +236,62 @@ const deleteUser = async (req, res) => {
       if (user.role === 'proprietaire') {
         const maisons = await tx.maison.findMany({ where: { proprietaireId: userId } });
         const maisonIds = maisons.map((m) => m.id);
-        await tx.consommation.deleteMany({ where: { maisonId: { in: maisonIds } } });
-        await tx.facture.deleteMany({ where: { maisonId: { in: maisonIds } } });
+
+        const residents = await tx.user.findMany({
+          where: { idProprietaire: userId, role: 'resident' },
+          select: { id: true },
+        });
+        const residentIds = residents.map((r) => r.id);
+
+        if (residentIds.length) {
+          await tx.notification.deleteMany({ where: { destinataireId: { in: residentIds } } });
+          await tx.message.deleteMany({
+            where: {
+              OR: [
+                { expediteurId: { in: residentIds } },
+                { destinataireId: { in: residentIds } },
+              ],
+            },
+          });
+          await tx.log.deleteMany({ where: { userId: { in: residentIds } } });
+          await tx.facture.deleteMany({ where: { residentId: { in: residentIds } } });
+          await tx.consommation.deleteMany({ where: { residentId: { in: residentIds } } });
+          for (const rid of residentIds) {
+            await tx.user.update({
+              where: { id: rid },
+              data: { maisonId: null, maisonsHabitees: { set: [] } },
+            });
+          }
+        }
+
+        if (maisonIds.length) {
+          await tx.facture.deleteMany({ where: { maisonId: { in: maisonIds } } });
+          await tx.consommation.deleteMany({ where: { maisonId: { in: maisonIds } } });
+        }
+
         await tx.user.deleteMany({ where: { idProprietaire: userId, role: 'resident' } });
+
+        await tx.user.update({
+          where: { id: userId },
+          data: { maisonId: null, maisonsHabitees: { set: [] }, abonnementId: null },
+        });
+
         await tx.maison.deleteMany({ where: { proprietaireId: userId } });
         await tx.abonnement.deleteMany({ where: { proprietaireId: userId } });
       } else if (user.role === 'resident') {
-        await tx.consommation.deleteMany({ where: { residentId: userId } });
         await tx.facture.deleteMany({ where: { residentId: userId } });
+        await tx.consommation.deleteMany({ where: { residentId: userId } });
+        await tx.user.update({
+          where: { id: userId },
+          data: { maisonId: null, maisonsHabitees: { set: [] } },
+        });
+      } else if (user.abonnementId) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { abonnementId: null },
+        });
       }
+
       await tx.message.deleteMany({
         where: { OR: [{ expediteurId: userId }, { destinataireId: userId }] },
       });
@@ -895,6 +943,8 @@ const broadcastNotification = async (req, res) => {
       where: whereUser,
       select: { id: true, email: true, role: true }
     });
+    const fcmConfigured =
+      typeof firebaseAdmin.isFirebaseReady === 'function' && firebaseAdmin.isFirebaseReady();
     const details = [];
     let success = 0;
     let failed = 0;
@@ -909,7 +959,14 @@ const broadcastNotification = async (req, res) => {
             statut: 'envoye'
           }
         });
-        const send = await notifications.envoyerAvecTitre(u.id, String(title).trim(), String(message).trim());
+        const send = fcmConfigured
+          ? await notifications.envoyerAvecTitre(u.id, String(title).trim(), String(message).trim())
+          : {
+              success: false,
+              error:
+                'Push FCM indisponible : définissez la variable FIREBASE_CONFIG (JSON compte de service) sur Vercel.',
+              errorCode: 'FCM_DISABLED',
+            };
         if (send.success) {
           success += 1;
           details.push({
@@ -949,7 +1006,11 @@ const broadcastNotification = async (req, res) => {
         total,
         success,
         failed,
-        successRate
+        successRate,
+        fcmConfigured,
+        hint: fcmConfigured
+          ? undefined
+          : 'Les lignes sont créées en base ; la push mobile nécessite FIREBASE_CONFIG sur le déploiement Vercel.',
       },
       notification: {
         title: String(title).trim(),
