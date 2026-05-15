@@ -395,6 +395,34 @@ const getMyMaisonFactures = async (req, res) => {
   }
 };
 
+const deleteFacture = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const facture = await prisma.facture.findUnique({
+      where: { id },
+      include: { maison: { select: { proprietaireId: true } } },
+    });
+
+    if (!facture) return res.status(404).json({ message: 'Facture non trouvée' });
+
+    if (req.user.role === 'proprietaire') {
+      if (facture.maison?.proprietaireId !== req.user.id) {
+        return res.status(403).json({ message: 'Accès non autorisé' });
+      }
+    } else if (facture.residentId !== req.user.id) {
+      return res.status(403).json({ message: 'Accès non autorisé' });
+    }
+
+    await prisma.facture.delete({ where: { id } });
+
+    return res.json({ message: 'Facture supprimée avec succès' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression de la facture:', error);
+    return res.status(500).json({ message: 'Erreur lors de la suppression' });
+  }
+};
+
 module.exports = {
   generateFacture,
   getFacturesByResident,
@@ -402,5 +430,6 @@ module.exports = {
   getFacture,
   markFactureAsPaid,
   getMyFactures,
-  getMyMaisonFactures
+  getMyMaisonFactures,
+  deleteFacture,
 };

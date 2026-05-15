@@ -237,19 +237,45 @@ const deleteResident = async (req, res) => {
 
     const resident = await prisma.user.findUnique({
       where: { id },
-      include: { maisonsHabitees: true }
     });
 
-    if (!resident) {
+    if (!resident || resident.role !== 'resident') {
       return res.status(404).json({ message: 'Résident non trouvé' });
     }
 
+    if (req.user.role !== 'proprietaire') {
+      return res.status(403).json({ message: 'Accès réservé aux gérants' });
+    }
+
+    if (resident.idProprietaire !== req.user.id) {
+      return res.status(403).json({ message: 'Accès non autorisé pour ce résident' });
+    }
+
     await prisma.$transaction(async (tx) => {
+      // Contraintes FK : supprimer les données liées avant l'utilisateur.
+      await tx.facture.deleteMany({ where: { residentId: id } });
+      await tx.consommation.deleteMany({ where: { residentId: id } });
+      await tx.message.deleteMany({
+        where: {
+          OR: [{ expediteurId: id }, { destinataireId: id }],
+        },
+      });
+      await tx.notification.deleteMany({ where: { destinataireId: id } });
+      await tx.log.deleteMany({ where: { userId: id } });
+
+      await tx.user.update({
+        where: { id },
+        data: {
+          maisonsHabitees: { set: [] },
+          maisonId: null,
+        },
+      });
+
       await tx.user.delete({ where: { id } });
     });
 
     res.json({
-      message: 'Résident supprimé avec succès'
+      message: 'Résident supprimé avec succès',
     });
   } catch (error) {
     console.error('Erreur lors de la suppression du résident:', error);
@@ -259,9 +285,12 @@ const deleteResident = async (req, res) => {
 
 const getResidents = async (req, res) => {
   try {
-    const { page = 1, pageSize = 50, search, maisonId } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(pageSize);
-    const take = parseInt(pageSize);
+    const page = parseInt(req.query.page, 10) || 1;
+    const pageSize =
+      parseInt(req.query.pageSize, 10) || parseInt(req.query.limit, 10) || 50;
+    const { search, maisonId } = req.query;
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
 
     const where = {
       role: 'resident',
@@ -277,7 +306,18 @@ const getResidents = async (req, res) => {
     }
 
     if (maisonId) {
-      where.maisonId = maisonId;
+      const maisonFilter = {
+        OR: [
+          { maisonId: String(maisonId) },
+          { maisonsHabitees: { some: { id: String(maisonId) } } },
+        ],
+      };
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, maisonFilter];
+        delete where.OR;
+      } else {
+        Object.assign(where, maisonFilter);
+      }
     }
 
     const [items, total] = await Promise.all([
@@ -293,9 +333,9 @@ const getResidents = async (req, res) => {
     res.json({
       items,
       total,
-      page: parseInt(page),
-      pageSize: parseInt(pageSize),
-      hasMore: skip + items.length < total
+      page,
+      pageSize,
+      hasMore: skip + items.length < total,
     });
   } catch (error) {
     console.error('Erreur lors de la récupération des résidents:', error);

@@ -45,7 +45,7 @@ model User {
 }
 
 model Maison {
-  id                String         @id @default(uuid())
+  id                String             @id @default(uuid())
   nomMaison         String
   proprietaireId    String
   adresseRue        String?
@@ -56,13 +56,35 @@ model Maison {
   tarifKwh          Float          @default(0)
   nbResidentsMax    Int            @default(1)
   statut            String         @default("active")
+  codeInvitation    String?        @unique
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   consommations     Consommation[]
   factures          Facture[]
+  demandesResidents DemandeResident[]
   proprietaire      User           @relation("ProprietaireMaisons", fields: [proprietaireId], references: [id])
   residentsDirects  User[]         @relation("ResidentMaison")
   listeResidents    User[]         @relation("MaisonResidents")
+}
+
+model DemandeResident {
+  id             String    @id @default(uuid())
+  maisonId       String
+  prenom         String
+  nom            String
+  telephone      String
+  email          String
+  statut         String    @default("en_attente")
+  expireLe       DateTime
+  motifRefus     String?
+  traiteeLe      DateTime?
+  residentCreeId String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  maison         Maison    @relation(fields: [maisonId], references: [id], onDelete: Cascade)
+
+  @@index([maisonId, email])
+  @@index([maisonId, statut])
 }
 
 model Consommation {

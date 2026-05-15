@@ -1,17 +1,52 @@
+const crypto = require('crypto');
+/** Les variables déjà définies (shell, IDE…) ne sont pas écrasées sans override — cause fréquente de secret .env ignoré. */
+require('dotenv').config({ override: true });
+
+const { getWhatsAppAppSecretForWebhook } = require('./utils/whatsappAppSecret');
+
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const hpp = require('hpp');
+const swaggerUi = require('swagger-ui-express');
 const prisma = require('./config/prisma');
-require('dotenv').config();
+const swaggerSpec = require('./docs/swagger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(helmet());
+if (
+  process.env.NODE_ENV === 'development' &&
+  (process.env.WHATSAPP_WEBHOOK_SIGNATURE_DEBUG === 'true' ||
+    process.env.WHATSAPP_WEBHOOK_SIGNATURE_DEBUG === '1')
+) {
+  const raw = getWhatsAppAppSecretForWebhook();
+  const secretFp =
+    raw.length > 0 ? crypto.createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 12) : '—';
+  console.log(
+    '[WhatsApp] diagnostic démarrage — APP_ID (à comparer au tableau Meta):',
+    process.env.WHATSAPP_APP_ID || '—',
+    '| longueur App Secret (caractères):',
+    raw.length,
+    raw.length === 32 ? '(format habituel)' : '(attendu souvent 32)',
+    '| empreinte SHA256(secret)[0:12]:',
+    secretFp,
+    '(doit changer si tu modifies WHATSAPP_APP_SECRET dans .env)'
+  );
+}
 
 app.set('trust proxy', 1);
+
+/**
+ * WhatsApp : monté avant helmet / CORS — évite tout effet de bord sur le corps brut ou les en-têtes.
+ * Doit rester avant express.json (corps brut pour X-Hub-Signature-256).
+ */
+const whatsappWebhookRoutes = require('./routes/whatsappWebhook');
+app.use('/webhooks/whatsapp', whatsappWebhookRoutes);
+app.use('/webhook', whatsappWebhookRoutes);
+
+app.use(helmet());
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -97,6 +132,7 @@ app.use('/consommations', require('./routes/consommations'));
 app.use('/factures', require('./routes/factures'));
 app.use('/abonnements', require('./routes/abonnements'));
 app.use('/maisons', require('./routes/maisons'));
+app.use('/demandes-residents', require('./routes/demandesResidents'));
 app.use('/messages', require('./routes/messages'));
 app.use('/admin', require('./routes/admin'));
 
@@ -110,6 +146,8 @@ app.get('/app-info', appInfoController.getAppInfo);
 app.get('/', (req, res) => {
   res.json({ message: 'API Ecopower - Gestion de consommation électrique' });
 });
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

@@ -1,5 +1,9 @@
 const prisma = require('../config/prisma');
 const notifications = require('../utils/notifications');
+const {
+  createInvoiceForConsumption,
+  notifyInvoiceCreation,
+} = require('../services/billingService');
 
 function getMaxRelevesParMois() {
   const n = parseInt(process.env.MAX_RELEVES_PAR_MOIS, 10);
@@ -86,9 +90,27 @@ const addConsommation = async (req, res) => {
       console.error('Erreur notification consommation:', e.message);
     }
 
+    let facture = null;
+    try {
+      const invoiceResult = await createInvoiceForConsumption({
+        consommationId: consommation.id,
+        fraisFixes: 0,
+      });
+      facture = invoiceResult.facture;
+      if (!invoiceResult.duplicated) {
+        await notifyInvoiceCreation({
+          facture: invoiceResult.facture,
+          consommation: invoiceResult.consommation,
+        });
+      }
+    } catch (e) {
+      console.error('createInvoiceForConsumption:', e.message);
+    }
+
     res.status(201).json({
       message: "Consommation enregistrée avec succès",
       consommation,
+      ...(facture ? { facture } : {}),
     });
   } catch (error) {
     console.error("Erreur lors de l'enregistrement de la consommation:", error);

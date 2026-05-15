@@ -1,10 +1,78 @@
-
-
-
 const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
 
+/** Après un échec d’auth SMTP, on n’insiste plus (évite le spam 535 dans les logs). */
+let smtpDisabledForSession = false;
+
+function cleanEnv(value) {
+  if (value == null) return '';
+  return String(value).trim().replace(/^["']|["']$/g, '');
+}
+
+function isEmailExplicitlyDisabled() {
+  const v = cleanEnv(process.env.EMAIL_ENABLED).toLowerCase();
+  return v === 'false' || v === '0' || v === 'no';
+}
+
+function isAuthSmtpError(error) {
+  const msg = (error && error.message) || '';
+  const code = error && error.code;
+  return (
+    code === 'EAUTH' ||
+    /535|BadCredentials|Username and Password not accepted/i.test(msg)
+  );
+}
+
+function logGmailSetupHint() {
+  console.warn('⚠️ [EMAIL] Gmail refuse la connexion SMTP (identifiants invalides).');
+  console.warn('   → Compte Google : activer la validation en 2 étapes');
+  console.warn('   → Créer un mot de passe d’application : https://myaccount.google.com/apppasswords');
+  console.warn('   → .env : SMTP_USER=votre@gmail.com et SMTP_PASSWORD=mot_de_passe_app (16 caractères, sans espaces)');
+  console.warn('   → Développement sans envoi réel : EMAIL_ENABLED=false');
+}
+
+function getSmtpUser() {
+  return cleanEnv(process.env.SMTP_USER);
+}
+
+/**
+ * Envoi sécurisé : simulation si SMTP absent, pas de crash API si Gmail refuse.
+ */
+async function sendMailSafe(mailOptions, logLabel) {
+  const transporter = createTransporter();
+
+  if (!transporter) {
+    console.log(`📧 [EMAIL SIMULÉ] ${logLabel}`);
+    if (mailOptions.to) console.log(`   Destinataire: ${mailOptions.to}`);
+    return { success: true, mode: 'simulation' };
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: mailOptions.from || `"Ecopower" <${getSmtpUser()}>`,
+      ...mailOptions,
+    });
+    console.log(`✅ [EMAIL] ${logLabel}:`, info.messageId);
+    return {
+      success: true,
+      messageId: info.messageId,
+      sentAt: new Date(),
+      to: mailOptions.to,
+      mode: 'production',
+    };
+  } catch (error) {
+    if (isAuthSmtpError(error)) {
+      smtpDisabledForSession = true;
+      logGmailSetupHint();
+    } else {
+      console.error(`❌ [EMAIL] ${logLabel}:`, error.message);
+    }
+    console.log(`📧 [EMAIL SIMULÉ] ${logLabel} (échec envoi, demande API non bloquée)`);
+    if (mailOptions.to) console.log(`   Destinataire: ${mailOptions.to}`);
+    return { success: false, error: error.message, mode: 'error_fallback' };
+  }
+}
 
 const getLogoUrl = () => {
   
@@ -36,30 +104,44 @@ const getLogoUrl = () => {
 
 
 const createTransporter = () => {
-  
-  const emailConfig = {
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true', 
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASSWORD,
-    },
-  };
-
-  
-  if (!emailConfig.auth.user || !emailConfig.auth.pass) {
-    console.warn('⚠️ [EMAIL] Configuration SMTP non trouvée. Utilisation du mode test (emails ne seront pas envoyés).');
-    console.warn('⚠️ [EMAIL] Configurez SMTP_USER, SMTP_PASSWORD, SMTP_HOST dans votre .env');
-    
-    
+  if (smtpDisabledForSession || isEmailExplicitlyDisabled()) {
     return null;
   }
 
+  const user = getSmtpUser();
+  const pass = cleanEnv(process.env.SMTP_PASSWORD);
+
+  if (!user || !pass) {
+    console.warn(
+      '⚠️ [EMAIL] SMTP_USER / SMTP_PASSWORD manquants — mode simulation (aucun email envoyé).',
+    );
+    return null;
+  }
+
+  const host = cleanEnv(process.env.SMTP_HOST) || 'smtp.gmail.com';
+  const port = parseInt(cleanEnv(process.env.SMTP_PORT) || '587', 10);
+  const secure = cleanEnv(process.env.SMTP_SECURE) === 'true';
+
   try {
-    return nodemailer.createTransport(emailConfig);
+    if (host.includes('gmail')) {
+      return nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+        requireTLS: true,
+        auth: { user, pass },
+      });
+    }
+
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      requireTLS: !secure && port === 587,
+      auth: { user, pass },
+    });
   } catch (error) {
-    console.error('❌ [EMAIL] Erreur lors de la création du transporteur:', error);
+    console.error('❌ [EMAIL] Erreur lors de la création du transporteur:', error.message);
     return null;
   }
 };
@@ -668,11 +750,38 @@ Pour répondre, répondez directement à cet email.
   }
 };
 
+/**
+ * Confirmation au demandeur : demande enregistrée, en attente du gérant (parcours /rejoindre).
+ */
+const sendDemandeAdhesionEnAttenteEmail = async (email, prenom, nom, maisonNom) => {
+  const subject = 'Ecopower — Demande d’adhésion reçue';
+  const safePrenom = String(prenom || '').trim();
+  const safeMaison = String(maisonNom || '').trim();
+  const bodyHtml = `
+      <p>Bonjour ${safePrenom},</p>
+      <p>Votre demande pour rejoindre le logement <strong>${safeMaison}</strong> a bien été enregistrée.</p>
+      <p>Le gérant doit l’approuver avant que vous puissiez vous connecter à l’application. Vous recevrez un message lorsque ce sera fait.</p>
+      <p>— L’équipe Ecopower</p>
+    `;
+  const bodyText = `Bonjour ${safePrenom},\n\nVotre demande pour rejoindre « ${safeMaison} » a bien été enregistrée.\nLe gérant doit l’approuver avant que vous puissiez vous connecter.\n\n— Ecopower`;
+
+  return sendMailSafe(
+    {
+      to: email,
+      subject,
+      text: bodyText,
+      html: bodyHtml,
+    },
+    'Demande adhésion en attente',
+  );
+};
+
 module.exports = {
   sendPasswordResetEmail,
   sendCredentialsEmail,
   sendGoogleInvitationEmail,
-  sendContactEmail
+  sendContactEmail,
+  sendDemandeAdhesionEnAttenteEmail,
 };
 
 

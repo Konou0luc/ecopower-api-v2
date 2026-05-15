@@ -223,9 +223,28 @@ const getMonAbonnement = async (req, res) => {
   }
 };
 
+const getHistoriqueAbonnements = async (req, res) => {
+  try {
+    if (req.user.role !== 'proprietaire') {
+      return res.status(403).json({ message: 'Seuls les propriétaires peuvent consulter l’historique' });
+    }
+
+    const abonnements = await prisma.abonnement.findMany({
+      where: { proprietaireId: req.user.id },
+      orderBy: [{ dateDebut: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    return res.json({ abonnements });
+  } catch (error) {
+    console.error('Erreur lors de la récupération de l\'historique des abonnements:', error);
+    return res.status(500).json({ message: 'Erreur lors de la récupération de l\'historique' });
+  }
+};
+
 module.exports = {
   getOffres,
   souscrire,
   renouveler,
-  getMonAbonnement
+  getMonAbonnement,
+  getHistoriqueAbonnements,
 };

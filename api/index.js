@@ -1,12 +1,20 @@
+require('dotenv').config({ override: true });
+
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const swaggerUi = require('swagger-ui-express');
 const prisma = require('../config/prisma');
-require('dotenv').config();
+const swaggerSpec = require('../docs/swagger');
 
 const app = express();
 
 app.set('trust proxy', 1);
+
+/** WhatsApp — avant CORS / express.json (corps brut pour la signature POST). */
+const whatsappWebhookRoutes = require('../routes/whatsappWebhook');
+app.use('/webhooks/whatsapp', whatsappWebhookRoutes);
+app.use('/webhook', whatsappWebhookRoutes);
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -47,6 +55,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -85,6 +94,7 @@ app.use('/consommations', require('../routes/consommations'));
 app.use('/factures', require('../routes/factures'));
 app.use('/abonnements', require('../routes/abonnements'));
 app.use('/maisons', require('../routes/maisons'));
+app.use('/demandes-residents', require('../routes/demandesResidents'));
 app.use('/messages', require('../routes/messages'));
 app.use('/admin', require('../routes/admin'));
 app.use('/contact', require('../routes/contact'));
@@ -99,6 +109,8 @@ app.get('/app-info', appInfoController.getAppInfo);
 app.get('/', (req, res) => {
   res.json({ message: 'API Ecopower - Gestion de consommation électrique (Vercel/Prisma)' });
 });
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use((err, req, res, _next) => {
   console.error('❌ [VERCEL] Erreur:', err.stack);

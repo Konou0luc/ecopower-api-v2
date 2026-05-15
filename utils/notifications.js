@@ -3,6 +3,10 @@ const admin = require('../config/firebase');
 
 const envoyer = async (residentId, message) => {
   try {
+    if (!admin.isFirebaseReady()) {
+      return { success: false, error: 'FIREBASE_NOT_CONFIGURED', skipped: true };
+    }
+
     const resident = await prisma.user.findUnique({
       where: { id: residentId }
     });
@@ -64,9 +68,13 @@ const envoyer = async (residentId, message) => {
   }
 };
 
-/** FCM avec titre personnalisé (admin / diffusion) */
-const envoyerAvecTitre = async (userId, titre, corps) => {
+/** FCM avec titre personnalisé (admin / diffusion). `dataExtras` : clés/valeurs ajoutées au payload `data` (ex. route). */
+const envoyerAvecTitre = async (userId, titre, corps, dataExtras = {}) => {
   try {
+    if (!admin.isFirebaseReady()) {
+      return { success: false, error: 'FIREBASE_NOT_CONFIGURED', skipped: true };
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId }
     });
@@ -80,15 +88,21 @@ const envoyerAvecTitre = async (userId, titre, corps) => {
       return { success: false, error: 'DEVICE_TOKEN_MISSING' };
     }
 
+    const data = {
+      userId: String(user.id),
+      type: dataExtras.type != null ? String(dataExtras.type) : 'notification',
+    };
+    for (const [k, v] of Object.entries(dataExtras)) {
+      if (v == null || k === 'userId' || k === 'type') continue;
+      data[k] = String(v);
+    }
+
     const messagePayload = {
       notification: {
         title: titre || 'Ecopower',
         body: corps
       },
-      data: {
-        userId: user.id,
-        type: 'notification'
-      },
+      data,
       token: deviceToken,
       android: {
         priority: 'high',
@@ -253,6 +267,24 @@ const notifyResidentAdded = async (resident, password, maisonNom) => {
   }
 };
 
+/** Push gérant : nouvelle demande d’adhésion self-service (ouvre l’écran demandes dans l’app si `route` est géré). */
+const notifyProprietaireNouvelleDemandeAdhesion = async (
+  proprietaireId,
+  { demandeurPrenom, demandeurNom, maisonNom }
+) => {
+  try {
+    const titre = 'Nouvelle demande d’adhésion';
+    const corps = `${String(demandeurPrenom || '').trim()} ${String(demandeurNom || '').trim()} souhaite rejoindre « ${maisonNom} ». Ouvrez l’app pour approuver ou refuser.`;
+    return await envoyerAvecTitre(proprietaireId, titre, corps, {
+      type: 'demande_adhesion',
+      route: '/demandes-adhesion',
+    });
+  } catch (error) {
+    console.error('❌ Erreur notifyProprietaireNouvelleDemandeAdhesion:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 module.exports = {
   envoyer,
   envoyerAvecTitre,
@@ -262,5 +294,6 @@ module.exports = {
   notifyPaymentReceived,
   notifyNewResident,
   notifyConsommationAdded,
-  notifyResidentAdded
+  notifyResidentAdded,
+  notifyProprietaireNouvelleDemandeAdhesion
 };

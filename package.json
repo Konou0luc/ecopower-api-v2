@@ -5,6 +5,8 @@
   "scripts": {
     "start": "node app.js",
     "dev": "bun --watch app.js",
+    "test:whatsapp-webhook": "bash scripts/test-whatsapp-webhook-local.sh",
+    "verify:whatsapp-signature": "node scripts/verify-webhook-signature.js",
     "generate": "prisma generate",
     "db:push": "prisma db push",
     "migrate": "prisma migrate dev",
@@ -30,7 +32,10 @@
     "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
     "prisma": "^7.6.0",
-    "socket.io": "^4.8.3"
+    "raw-body": "^2.5.2",
+    "socket.io": "^4.8.3",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@types/bun": "latest",

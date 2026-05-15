@@ -1,4 +1,6 @@
 const prisma = require('../config/prisma');
+const { ensureUniqueMaisonInvitationCode } = require('../utils/invitationCode');
+const { sendTextMessage } = require('../services/whatsappGraphClient');
 
 const getMaisonById = async (req, res) => {
   try {
@@ -30,6 +32,7 @@ const createMaison = async (req, res) => {
       return res.status(403).json({ message: 'Seuls les propriétaires peuvent créer des maisons' });
     }
 
+    const codeInvitation = await ensureUniqueMaisonInvitationCode(prisma);
     const maison = await prisma.maison.create({
       data: {
         nomMaison,
@@ -40,7 +43,8 @@ const createMaison = async (req, res) => {
         adressePays: adresse?.pays || 'Togo',
         description,
         tarifKwh: tarifKwh !== undefined ? Number(tarifKwh) : 0,
-        nbResidentsMax: nbResidentsMax !== undefined ? Number(nbResidentsMax) : 1
+        nbResidentsMax: nbResidentsMax !== undefined ? Number(nbResidentsMax) : 1,
+        codeInvitation,
       }
     });
 
@@ -144,6 +148,97 @@ const getMaison = async (req, res) => {
   } catch (error) {
     console.error('Erreur lors de la récupération de la maison:', error);
     res.status(500).json({ message: 'Erreur lors de la récupération de la maison' });
+  }
+};
+
+const regenerateCodeInvitation = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role !== 'proprietaire') {
+      return res.status(403).json({ message: 'Accès réservé aux gérants' });
+    }
+
+    const maison = await prisma.maison.findFirst({
+      where: { id, proprietaireId: req.user.id },
+    });
+    if (!maison) {
+      return res.status(404).json({ message: 'Maison non trouvée' });
+    }
+
+    const codeInvitation = await ensureUniqueMaisonInvitationCode(prisma);
+    const updatedMaison = await prisma.maison.update({
+      where: { id: maison.id },
+      data: { codeInvitation },
+    });
+
+    res.json({
+      message: 'Code d’invitation régénéré',
+      maison: updatedMaison,
+    });
+  } catch (error) {
+    console.error('regenerateCodeInvitation:', error);
+    res.status(500).json({ message: 'Erreur lors de la régénération du code' });
+  }
+};
+
+const shareInvitationCodeOnWhatsApp = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const to = String(req.body.to || '').trim();
+    if (!to) {
+      return res.status(400).json({ message: 'Le champ "to" est requis' });
+    }
+
+    if (req.user.role !== 'proprietaire') {
+      return res.status(403).json({ message: 'Accès réservé aux gérants' });
+    }
+
+    const maison = await prisma.maison.findFirst({
+      where: { id, proprietaireId: req.user.id },
+      select: { id: true, nomMaison: true, codeInvitation: true },
+    });
+    if (!maison) {
+      return res.status(404).json({ message: 'Maison non trouvée' });
+    }
+
+    const codeInvitation = maison.codeInvitation || (await ensureUniqueMaisonInvitationCode(prisma));
+    if (!maison.codeInvitation) {
+      await prisma.maison.update({
+        where: { id: maison.id },
+        data: { codeInvitation },
+      });
+    }
+
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim();
+    if (!phoneNumberId) {
+      return res.status(400).json({ message: 'WHATSAPP_PHONE_NUMBER_ID n’est pas configuré' });
+    }
+
+    const messageText =
+      `Code d’invitation Ecopower (${maison.nomMaison}) : ${codeInvitation}\n` +
+      'Saisissez ce code dans l’application pour soumettre votre demande.';
+
+    const sent = await sendTextMessage({
+      phoneNumberId,
+      to,
+      body: messageText,
+    });
+    if (!sent.ok) {
+      return res.status(502).json({
+        message: 'Échec de l’envoi du code d’invitation sur WhatsApp',
+        details: sent.error || null,
+      });
+    }
+
+    res.json({
+      message: 'Code d’invitation partagé avec succès',
+      codeInvitation,
+      delivery: sent.data || null,
+    });
+  } catch (error) {
+    console.error('shareInvitationCodeOnWhatsApp:', error);
+    res.status(500).json({ message: 'Erreur lors du partage du code' });
   }
 };
 
@@ -422,6 +517,8 @@ module.exports = {
   createMaison,
   getMaisons,
   getMaison,
+  regenerateCodeInvitation,
+  shareInvitationCodeOnWhatsApp,
   updateMaison,
   updateMaisonConfiguration,
   deleteMaison,
