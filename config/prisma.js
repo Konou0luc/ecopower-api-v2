@@ -6,8 +6,9 @@ const { Pool } = require('pg');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 20,
-  idleTimeoutMillis: 10_000,
-  connectionTimeoutMillis: 15_000,
+  idleTimeoutMillis: 30_000,
+  /* Neon (cloud) : réveil + TLS peut dépasser 15 s en local */
+  connectionTimeoutMillis: 60_000,
   keepAlive: true,
 });
 

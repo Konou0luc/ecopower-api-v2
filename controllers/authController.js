@@ -110,6 +110,12 @@ const register = async (req, res) => {
 
 const FREE_MODE = process.env.FREE_MODE === 'true';
 
+const isDbTimeoutError = (error) => {
+  const code = error?.code;
+  const msg = String(error?.message || '');
+  return code === 'ETIMEDOUT' || msg.includes('ETIMEDOUT') || msg.includes('Connection terminated');
+};
+
 const login = async (req, res) => {
   try {
     console.log('🔐 [LOGIN] Tentative de connexion reçue');
@@ -212,9 +218,15 @@ const login = async (req, res) => {
     });
   } catch (error) {
     console.error('💥 [LOGIN] Erreur lors de la connexion:', error);
-    res.status(500).json({ 
+    if (isDbTimeoutError(error)) {
+      return res.status(503).json({
+        message:
+          'La base de données ne répond pas (délai dépassé). Avec Neon, attendez 30 s et réessayez : la base se réveille peut-être du mode veille.',
+      });
+    }
+    res.status(500).json({
       message: 'Erreur lors de la connexion',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -460,6 +472,50 @@ const setDeviceToken = async (req, res) => {
   } catch (error) {
     console.error('💥 [API] Erreur lors de la mise à jour du deviceToken:', error);
     return res.status(500).json({ message: 'Erreur lors de la mise à jour du device token' });
+  }
+};
+
+/** Notifications in-app pour l’utilisateur connecté (app mobile). */
+const getMyNotifications = async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const lim = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
+    const skip = (page - 1) * lim;
+    const userId = req.user.id;
+
+    const [rows, total] = await Promise.all([
+      prisma.notification.findMany({
+        where: { destinataireId: userId },
+        skip,
+        take: lim,
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.notification.count({ where: { destinataireId: userId } }),
+    ]);
+
+    const notifications = rows.map((n) => ({
+      id: n.id,
+      titre: n.titre,
+      message: n.contenu,
+      contenu: n.contenu,
+      type: n.type,
+      lue: !!n.dateLecture,
+      createdAt: n.createdAt,
+      dateLecture: n.dateLecture,
+    }));
+
+    res.json({
+      notifications,
+      pagination: {
+        total,
+        page,
+        limit: lim,
+        pages: Math.ceil(total / lim) || 0,
+      },
+    });
+  } catch (error) {
+    console.error('Erreur getMyNotifications:', error);
+    res.status(500).json({ message: 'Erreur lors de la récupération des notifications' });
   }
 };
 
@@ -710,6 +766,7 @@ module.exports = {
   changePassword,
   getCurrentUser,
   setDeviceToken,
+  getMyNotifications,
   setHomeLocation,
   forgotPassword,
   deleteMyAccount

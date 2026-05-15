@@ -139,8 +139,15 @@ const getAllUsers = async (req, res) => {
         take: parseInt(limit),
         orderBy: { createdAt: 'desc' },
         select: {
-          id: true, nom: true, prenom: true, email: true, telephone: true, role: true, createdAt: true
-        }
+          id: true,
+          nom: true,
+          prenom: true,
+          email: true,
+          telephone: true,
+          role: true,
+          createdAt: true,
+          maisonResident: { select: { id: true, nomMaison: true } },
+        },
       }),
       prisma.user.count({ where })
     ]);
@@ -788,22 +795,49 @@ const getNotifications = async (req, res) => {
         take: lim,
         orderBy: { createdAt: 'desc' },
         include: {
-          destinataire: { select: { id: true, email: true, nom: true, prenom: true } }
-        }
+          destinataire: {
+            select: {
+              id: true,
+              email: true,
+              nom: true,
+              prenom: true,
+              deviceToken: true,
+            },
+          },
+        },
       }),
       prisma.notification.count()
     ]);
-    const notifications = rows.map((n) => ({
-      id: n.id,
-      _id: n.id,
-      titre: n.titre,
-      message: n.contenu,
-      contenu: n.contenu,
-      type: n.type,
-      createdAt: n.createdAt,
-      lue: !!n.dateLecture,
-      destinataire: n.destinataire
-    }));
+    const notifications = rows.map((n) => {
+      const meta =
+        n.metadata && typeof n.metadata === 'object' && !Array.isArray(n.metadata)
+          ? n.metadata
+          : {};
+      const pushSuccess = meta.pushSuccess === true;
+      const pushAttempted = meta.pushAttempted === true;
+      const hasDevice = !!n.destinataire?.deviceToken;
+      let pushStatus = 'inconnu';
+      if (pushAttempted) {
+        pushStatus = pushSuccess ? 'push_ok' : 'push_echoue';
+      } else if (!hasDevice) {
+        pushStatus = 'sans_appareil';
+      }
+      const { deviceToken: _dt, ...destinataireSafe } = n.destinataire || {};
+      return {
+        id: n.id,
+        _id: n.id,
+        titre: n.titre,
+        message: n.contenu,
+        contenu: n.contenu,
+        type: n.type,
+        createdAt: n.createdAt,
+        lue: !!n.dateLecture,
+        pushStatus,
+        pushError: meta.pushError || null,
+        destinataireHasDevice: hasDevice,
+        destinataire: destinataireSafe,
+      };
+    });
     res.json({ notifications, pagination: { total, page: parseInt(page, 10), limit: lim, pages: Math.ceil(total / lim) || 0 } });
   } catch (error) {
     console.error('Erreur getNotifications:', error);
@@ -941,7 +975,7 @@ const broadcastNotification = async (req, res) => {
     }
     const users = await prisma.user.findMany({
       where: whereUser,
-      select: { id: true, email: true, role: true }
+      select: { id: true, email: true, role: true, deviceToken: true }
     });
     const fcmConfigured =
       typeof firebaseAdmin.isFirebaseReady === 'function' && firebaseAdmin.isFirebaseReady();
@@ -950,15 +984,6 @@ const broadcastNotification = async (req, res) => {
     let failed = 0;
     for (const u of users) {
       try {
-        await prisma.notification.create({
-          data: {
-            titre: String(title).trim(),
-            contenu: String(message).trim(),
-            destinataireId: u.id,
-            type: 'info',
-            statut: 'envoye'
-          }
-        });
         const send = fcmConfigured
           ? await notifications.envoyerAvecTitre(u.id, String(title).trim(), String(message).trim())
           : {
@@ -967,6 +992,23 @@ const broadcastNotification = async (req, res) => {
                 'Push FCM indisponible : définissez la variable FIREBASE_CONFIG (JSON compte de service) sur Vercel.',
               errorCode: 'FCM_DISABLED',
             };
+
+        await prisma.notification.create({
+          data: {
+            titre: String(title).trim(),
+            contenu: String(message).trim(),
+            destinataireId: u.id,
+            type: 'info',
+            statut: 'envoye',
+            metadata: {
+              pushAttempted: true,
+              pushSuccess: !!send.success,
+              pushError: send.error || null,
+              pushErrorCode: send.errorCode || null,
+              deviceTokenPresent: !!u.deviceToken,
+            },
+          },
+        });
         if (send.success) {
           success += 1;
           details.push({

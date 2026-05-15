@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
+const adminDemandesResidentsController = require('../controllers/adminDemandesResidentsController');
 const systemController = require('../controllers/systemController');
 const { authenticateToken, requireAdmin } = require('../middlewares/auth');
 
@@ -228,6 +229,12 @@ router.get('/subscriptions', adminController.getAllAbonnements);
  *         description: Liste résidents
  */
 router.get('/residents', adminController.getResidents);
+
+router.get('/demandes-residents', adminDemandesResidentsController.listDemandesResidents);
+router.post(
+  '/demandes-residents/:id/notifier-proprietaire',
+  adminDemandesResidentsController.notifierProprietaireDemande
+);
 /**
  * @swagger
  * /admin/residents/{id}:

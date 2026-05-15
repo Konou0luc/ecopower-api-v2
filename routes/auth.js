@@ -266,6 +266,29 @@ router.post('/device-token', authenticateToken, authController.setDeviceToken);
 
 /**
  * @swagger
+ * /auth/notifications:
+ *   get:
+ *     summary: Mes notifications (app mobile)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 30 }
+ *     responses:
+ *       200:
+ *         description: Liste des notifications de l'utilisateur
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ */
+router.get('/notifications', authenticateToken, authController.getMyNotifications);
+
+/**
+ * @swagger
  * /auth/home-location:
  *   patch:
  *     summary: Mettre à jour la localisation domicile de l'utilisateur

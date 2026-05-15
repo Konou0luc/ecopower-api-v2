@@ -753,6 +753,42 @@ Pour répondre, répondez directement à cet email.
 /**
  * Confirmation au demandeur : demande enregistrée, en attente du gérant (parcours /rejoindre).
  */
+/**
+ * Rappel au gérant : un résident a demandé à rejoindre sa maison (action admin, sans approbation).
+ */
+const sendRappelProprietaireDemandeAdhesionEmail = async ({
+  to,
+  gerantPrenom,
+  residentNom,
+  residentEmail,
+  residentTelephone,
+  maisonNom,
+  codeInvitation,
+}) => {
+  const subject = `Ecopower — Demande d’adhésion pour « ${maisonNom} »`;
+  const safeGerant = String(gerantPrenom || 'Gérant').trim();
+  const bodyHtml = `
+      <p>Bonjour ${safeGerant},</p>
+      <p><strong>${residentNom}</strong> a soumis une demande pour rejoindre votre logement <strong>${maisonNom}</strong> via le code d’invitation <strong>${codeInvitation}</strong>.</p>
+      <p>Si vous attendez bien cette personne, connectez-vous à l’application Ecopower (espace gérant) et <strong>approuvez ou refusez</strong> la demande dans la section adhésions.</p>
+      <p>Coordonnées du demandeur :<br/>
+      E-mail : ${residentEmail}<br/>
+      Téléphone : ${residentTelephone}</p>
+      <p>L’équipe Ecopower ne valide pas à votre place : seul vous pouvez accepter le résident.</p>
+      <p>— Équipe Ecopower</p>
+    `;
+  const bodyText =
+    `Bonjour ${safeGerant},\n\n` +
+    `${residentNom} demande à rejoindre « ${maisonNom} » (code : ${codeInvitation}).\n` +
+    `Si vous attendez cette personne, approuvez la demande dans l’app Ecopower (espace gérant).\n\n` +
+    `Demandeur : ${residentEmail} / ${residentTelephone}\n\n— Ecopower`;
+
+  return sendMailSafe(
+    { to, subject, text: bodyText, html: bodyHtml },
+    'Rappel gérant demande adhésion',
+  );
+};
+
 const sendDemandeAdhesionEnAttenteEmail = async (email, prenom, nom, maisonNom) => {
   const subject = 'Ecopower — Demande d’adhésion reçue';
   const safePrenom = String(prenom || '').trim();
@@ -782,6 +818,7 @@ module.exports = {
   sendGoogleInvitationEmail,
   sendContactEmail,
   sendDemandeAdhesionEnAttenteEmail,
+  sendRappelProprietaireDemandeAdhesionEmail,
 };
 
 

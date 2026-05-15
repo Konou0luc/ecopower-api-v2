@@ -160,10 +160,13 @@ app.use((req, res) => {
 
 const checkDB = async () => {
   try {
-    await prisma.$connect();
+    console.log(
+      'Connexion PostgreSQL… (Neon en veille : la première requête peut prendre jusqu’à ~1 min)'
+    );
+    await prisma.$queryRaw`SELECT 1`;
     console.log('✅ PostgreSQL connecté via Prisma');
   } catch (error) {
-    console.error('❌ Erreur de connexion à la base de données:', error);
+    console.error('❌ Erreur de connexion à la base de données:', error.message || error);
     process.exit(1);
   }
 };
